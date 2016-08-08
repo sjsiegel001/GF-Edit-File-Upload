@@ -10,7 +10,7 @@
  * @wordpress-plugin
  * Plugin Name: GF Edit File Upload
  * Description: Allows users to edit a file upload field on the frontend. Use shortcode [gfeditupload entryid=# fieldid=#] to edit file upload fields.
- * Version:     1.0
+ * Version:     1.0.1
  * Author:      Stephen Siegel
  * Text Domain: gf-edit-file-upload
  * License:     GPL-2.0+
@@ -207,9 +207,21 @@ function my_add_gf_upload() {
 		$target_file_url = $upload_dir['url'] . '/' . basename($filename);
 		$imageFileType = pathinfo($target_file,PATHINFO_EXTENSION);
 		
-		// Check if file already exists
-		if (file_exists($target_file)) {
-			$errors['exists'] = "the specified file already exists";
+		//check if file exists (in the folder or in the entry)
+		$upload_file_exists = in_array(
+			basename($filename),
+			listFilesFromFieldAndDirectory($entrynum, $fieldid)
+		);
+		if($upload_file_exists) {
+			$base_file = basename($filename);
+			$pathnfo = pathinfo($base_file);
+			$prefix = $pathnfo['filename'];
+			$ext = $pathnfo['extension'];
+			$files = listFilesFromFieldAndDirectory($entrynum, $fieldid);
+			$basename_with_prefix = $prefix . incrementGreatestFile($files, $prefix) . '.' . $ext;
+			
+			$target_file = $target_dir . apendNumberToFile( $basename_with_prefix, $entrynum, $fieldid );
+			$target_file_url = $upload_dir['url'] . '/' . apendNumberToFile( $basename_with_prefix, $entrynum, $fieldid );
 		}
 		
 		// Check file size
@@ -234,15 +246,6 @@ function my_add_gf_upload() {
 		
 		//format it back to a string
 		$value = '["' . implode('", "', $file_split) . '"]';
-		
-		//update it with the GFAPI
-		$result_update = GFAPI::update_entry_field( $entrynum, $fieldid, $value );
-		//echo 'entrynum: ' . $entrynum . ' - fieldid: ' . $fieldid . ' - value: ' . $value;
-		//print_r($data);
-		
-		if(!$result_update)
-			$errors['unupdated'] = "The file upload field could not be updated";
-		
 	}
 	
 	//check for errors
@@ -253,22 +256,30 @@ function my_add_gf_upload() {
 	} else {
 		if (move_uploaded_file($_FILES["fileToUpload"]["tmp_name"], $target_file)) {
 			$data['success'] = true;
-			
+			$result_update = GFAPI::update_entry_field( $entrynum, $fieldid, $value );
 			$entry = GFAPI::get_entry( $entrynum );
 			$stuff = json_decode( $entry[$fieldid] );
 			$data['output'] = displayFileUploads($stuff, $entrynum, $fieldid);
-			//$data['success'] = "The file ". basename( $_FILES["fileToUpload"]["name"]). " has been uploaded.";
+			
+			if(!$result_update) {
+				$errors['unupdated'] = "The file upload field could not be updated";
+				$data['success'] = false;
+				$data['errors']  = $errors;
+			}
+			
 		} else {
 			$data['success'] = false;
 			$data['errors']  = $errors;
 		}
 	}
 	
-	//echo 'hello world';
 	echo json_encode($data);
 
 	die();
 }
+
+include 'exists-helpers.php'; //helper functions for file exists check
+
 
 function wpdocs_theme_name_scripts() {
 	wp_register_script( 'form_upload_ajax',  plugin_dir_url(__FILE__) . 'assets/form_ajax.js' );
